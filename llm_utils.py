@@ -2,20 +2,11 @@ from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()  # take environment variables from .env.
 
-
 import anthropic
 import openai
 import os
 import sqlite3
 
-anthropic_client = anthropic.Anthropic()
-openai_client = openai.OpenAI()
-
-def get_openai_models_list():
-	return [
-		(model.id, datetime.fromtimestamp(model.created).isoformat())
-		for model in sorted(openai_client.models.list(), key=lambda x: x.created)
-	]
 
 ANTHROPIC_MODELS = {
 	"3.5": "claude-3-5-sonnet-20240620",
@@ -28,21 +19,33 @@ OPENAI_MODELS = {
 	"3.5": "gpt-3.5-turbo-16k"
 }
 
+MAX_RETRIES = 5
+
+RESPONSE_CACHE_DB_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), ".cache/llm_response_cache.db")
 RESPONSE_CACHE_DB = None
+
+anthropic_client = anthropic.Anthropic()
+openai_client = openai.OpenAI()
+
+def get_openai_models_list():
+	return [
+		(model.id, datetime.fromtimestamp(model.created).isoformat())
+		for model in sorted(openai_client.models.list(), key=lambda x: x.created)
+	]
+
 def _connect_to_response_cache():
     global RESPONSE_CACHE_DB
 
     if RESPONSE_CACHE_DB is not None:
         return
 
-    response_cache_db_path = "~/code/llm_utils/.cache/response_cache.db"
     RESPONSE_CACHE_DB = sqlite3.connect(
-        os.path.expanduser(response_cache_db_path),
+        os.path.expanduser(RESPONSE_CACHE_DB_PATH),
         isolation_level=None,
         cached_statements=0)
-    print("Connected to cache_db: ", response_cache_db_path)
+    print("Connected to cache_db: ", RESPONSE_CACHE_DB_PATH)
     try:
-        RESPONSE_CACHE_DB.execute("CREATE TABLE cache (question NOT NULL, model NOT NULL, temperature REAL, max_tokens INTEGER, system_prompt, response)").close()
+        RESPONSE_CACHE_DB.execute("CREATE TABLE cache (question NOT NULL, model NOT NULL, temperature REAL, max_tokens INTEGER, system_prompt, response, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)").close()
         RESPONSE_CACHE_DB.execute("CREATE UNIQUE INDEX cache_index ON cache (question, model, temperature, max_tokens, system_prompt)").close()
 
     except sqlite3.OperationalError as e:
@@ -68,18 +71,20 @@ def _get_response_from_cache(question, model, temperature, max_tokens=None, syst
 def _update_response_cache(question, model, temperature, max_tokens, system_prompt, response):
 	_connect_to_response_cache()
 	try:
+		# upsert into RESPONSE_CACHE_DB
 		RESPONSE_CACHE_DB.execute(
-			"INSERT INTO cache (question, model, temperature, max_tokens, system_prompt, response) VALUES (?, ?, ?, ?, ?, ?)", (
-			question, model, temperature, max_tokens, system_prompt, response))
+			"INSERT INTO cache (question, model, temperature, max_tokens, system_prompt, response) VALUES (?, ?, ?, ?, ?, ?)"
+			"ON CONFLICT(question, model, temperature, max_tokens, system_prompt) DO UPDATE SET response=?", (
+			question, model, temperature, max_tokens, system_prompt, response, response))
+
 	except sqlite3.IntegrityError as e:
 		print("CACHE ERROR:", e)
 
-
-MAX_RETRIES = 5
-def ask_anthropic(question, model="3.5", temperature=0, max_tokens=1000, system_prompt=""):
-	cached_response = _get_response_from_cache(question, f"anthropic {model}", temperature, max_tokens, system_prompt)
-	if cached_response is not None:
-		return cached_response
+def ask_anthropic(question, model="3.5", temperature=0, max_tokens=1000, system_prompt="", check_cache=True, update_cache=True):
+	if check_cache:
+		cached_response = _get_response_from_cache(question, f"anthropic {model}", temperature, max_tokens, system_prompt)
+		if cached_response is not None:
+			return cached_response
 
 	if model not in ANTHROPIC_MODELS:
 		raise ValueError(f"Model {model} not in {ANTHROPIC_MODELS.keys()}")
@@ -107,15 +112,17 @@ def ask_anthropic(question, model="3.5", temperature=0, max_tokens=1000, system_
 		return None
 
 	response_text = message.content[0].text
-	_update_response_cache(question, f"anthropic {model}", temperature, max_tokens, system_prompt, response_text)
+	if update_cache:
+		_update_response_cache(question, f"anthropic {model}", temperature, max_tokens, system_prompt, response_text)
 
 	return response_text
 
 
-def ask_openai(question, model="4o", temperature=0, system_prompt=""):
-	cached_response = _get_response_from_cache(question, f"openai {model}", temperature, None, system_prompt)
-	if cached_response is not None:
-		return cached_response
+def ask_openai(question, model="4o", temperature=0, system_prompt="", check_cache=True, update_cache=True):
+	if check_cache:
+		cached_response = _get_response_from_cache(question, f"openai {model}", temperature, None, system_prompt)
+		if cached_response is not None:
+			return cached_response
 
 	if model not in OPENAI_MODELS:
 		raise ValueError(f"Model {model} not in {OPENAI_MODELS.keys()}")
@@ -148,6 +155,7 @@ def ask_openai(question, model="4o", temperature=0, system_prompt=""):
 		return None
 
 	response_text = response.choices[0].message.content
-	_update_response_cache(question, f"openai {model}", temperature, None, system_prompt, response_text)
+	if update_cache:
+		_update_response_cache(question, f"openai {model}", temperature, None, system_prompt, response_text)
 
 	return response_text
