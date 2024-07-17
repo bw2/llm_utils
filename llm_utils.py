@@ -34,25 +34,30 @@ def get_openai_models_list():
 	]
 
 def _connect_to_response_cache():
-    global RESPONSE_CACHE_DB
+	global RESPONSE_CACHE_DB
 
-    if RESPONSE_CACHE_DB is not None:
-        return
+	if RESPONSE_CACHE_DB is not None:
+		return
 
-    RESPONSE_CACHE_DB = sqlite3.connect(
-        os.path.expanduser(RESPONSE_CACHE_DB_PATH),
-        isolation_level=None,
-        cached_statements=0)
-    print("Connected to cache_db: ", RESPONSE_CACHE_DB_PATH)
-    try:
-        RESPONSE_CACHE_DB.execute("CREATE TABLE cache (question NOT NULL, model NOT NULL, temperature REAL, max_tokens INTEGER, system_prompt, response, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)").close()
-        RESPONSE_CACHE_DB.execute("CREATE UNIQUE INDEX cache_index ON cache (question, model, temperature, max_tokens, system_prompt)").close()
+	cache_dir = os.path.dirname(RESPONSE_CACHE_DB_PATH)
+	if not os.path.isdir(cache_dir):
+		print("Creating response cache directory:", cache_dir)
+		os.makedirs(cache_dir)
 
-    except sqlite3.OperationalError as e:
-        if "already exists" not in str(e):
-            print("ERROR:", e)
+	RESPONSE_CACHE_DB = sqlite3.connect(
+		os.path.expanduser(RESPONSE_CACHE_DB_PATH),
+		isolation_level=None,
+		cached_statements=0)
+	print("Connected to response cache:", RESPONSE_CACHE_DB_PATH)
+	try:
+		RESPONSE_CACHE_DB.execute("CREATE TABLE cache (question NOT NULL, model NOT NULL, temperature REAL, max_tokens INTEGER, system_prompt, response, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)").close()
+		RESPONSE_CACHE_DB.execute("CREATE UNIQUE INDEX cache_index ON cache (question, model, temperature, max_tokens, system_prompt)").close()
 
-def _get_response_from_cache(question, model, temperature, max_tokens=None, system_prompt=""):
+	except sqlite3.OperationalError as e:
+		if "already exists" not in str(e):
+			print("ERROR:", e)
+
+def _get_response_from_cache(question, model, temperature, max_tokens=0, system_prompt=""):
 	_connect_to_response_cache()
 	cursor = RESPONSE_CACHE_DB.execute(
 		"SELECT response FROM cache WHERE question=? AND model=? AND temperature=? AND max_tokens=? AND system_prompt=?", (
@@ -80,12 +85,16 @@ def _update_response_cache(question, model, temperature, max_tokens, system_prom
 	except sqlite3.IntegrityError as e:
 		print("CACHE ERROR:", e)
 
-def ask_anthropic(question, model="3.5", temperature=0, max_tokens=1000, system_prompt="", check_cache=True, update_cache=True):
+def ask_anthropic(question, model="3.5", temperature=0, max_tokens=1000, system_prompt="", check_cache=True, update_cache=True, verbose=False):
 	if check_cache:
 		cached_response = _get_response_from_cache(question, f"anthropic {model}", temperature, max_tokens, system_prompt)
 		if cached_response is not None:
+			if verbose:
+				print(f"cache hit for q{len(question)}, anthropic {model}, temp={temperature}, tokens={max_tokens}, s{len(system_prompt)}")
 			return cached_response
 
+	if verbose:
+		print(f"calling api for q{len(question)}, anthropic {model}, temp={temperature}, tokens={max_tokens}, s{len(system_prompt)}")
 	if model not in ANTHROPIC_MODELS:
 		raise ValueError(f"Model {model} not in {ANTHROPIC_MODELS.keys()}")
 	if temperature < 0 or temperature > 1:
@@ -118,12 +127,17 @@ def ask_anthropic(question, model="3.5", temperature=0, max_tokens=1000, system_
 	return response_text
 
 
-def ask_openai(question, model="4o", temperature=0, system_prompt="", check_cache=True, update_cache=True):
+def ask_openai(question, model="4o", temperature=0, system_prompt="", check_cache=True, update_cache=True, verbose=False):
 	if check_cache:
-		cached_response = _get_response_from_cache(question, f"openai {model}", temperature, None, system_prompt)
+		cached_response = _get_response_from_cache(question, f"openai {model}", temperature, 0, system_prompt)
 		if cached_response is not None:
+			if verbose:
+				print(f"cache hit for q{len(question)}, openai {model}, temp={temperature}, s{len(system_prompt)}")
+
 			return cached_response
 
+	if verbose:
+		print(f"calling api for q{len(question)}, openai {model}, temp={temperature}, s{len(system_prompt)}")
 	if model not in OPENAI_MODELS:
 		raise ValueError(f"Model {model} not in {OPENAI_MODELS.keys()}")
 	if temperature < 0 or temperature > 1:
@@ -156,6 +170,6 @@ def ask_openai(question, model="4o", temperature=0, system_prompt="", check_cach
 
 	response_text = response.choices[0].message.content
 	if update_cache:
-		_update_response_cache(question, f"openai {model}", temperature, None, system_prompt, response_text)
+		_update_response_cache(question, f"openai {model}", temperature, 0, system_prompt, response_text)
 
 	return response_text
