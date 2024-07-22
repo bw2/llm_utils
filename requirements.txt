@@ -1,3 +1,5 @@
 python-dotenv
 openai
 anthropic
+google-generativeai
+mistralai
