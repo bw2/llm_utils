@@ -1,5 +1,5 @@
 from llm_utils.constants import ANTHROPIC_MODELS, OPENAI_MODELS, MISTRAL_MODELS, GEMINI_MODELS
-from llm_utils.text_compmletion import ask_anthropic, ask_openai, ask_gemini, ask_mistral
+from llm_utils.text_completion import ask_anthropic, ask_openai, ask_gemini, ask_mistral
 
 def _normalize_answer(answer):
 	answer = answer.strip().strip("'").lower()
