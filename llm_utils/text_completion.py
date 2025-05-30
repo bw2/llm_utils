@@ -3,9 +3,10 @@ from dotenv import load_dotenv
 load_dotenv()  # take environment variables from .env.
 
 import anthropic
-import google.generativeai as genai
+import google.genai as genai
+from google.genai import types
+
 from mistralai.client import MistralClient
-from mistralai.models.chat_completion import ChatMessage
 import openai
 import os
 import sqlite3
@@ -21,9 +22,6 @@ ANTHROPIC_CLIENT = None
 OPENAI_CLIENT = None
 MISTRAL_CLIENT = None
 
-
-if "GEMINI_API_KEY" in os.environ:
-	genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 
 def get_openai_models_list():
@@ -200,18 +198,19 @@ def ask_openai(question, model="4o", temperature=0, max_tokens=1000, system_prom
 		update_cache=update_cache,
 		verbose=verbose)
 
-def ask_gemini(question, model="1.5-pro", temperature=0, max_tokens=1000, system_prompt="", check_cache=True, update_cache=True, verbose=False):
+def ask_gemini(question, model="2.5-flash", temperature=0, max_tokens=1000, system_prompt="", check_cache=True, update_cache=True, verbose=False):
 	def run_query():
-		gemini_client = genai.GenerativeModel(
-			model_name=GEMINI_MODELS[model],
-			system_instruction=system_prompt or None)
+		gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-		response = gemini_client.generate_content(
+		response = gemini_client.models.generate_content(
+			model=GEMINI_MODELS[model],
 			contents=question,
-			generation_config = genai.GenerationConfig(
-        		max_output_tokens=max_tokens,
-        		temperature=temperature,
-    		)
+			config=types.GenerateContentConfig(
+				max_output_tokens=max_tokens,
+				temperature=temperature,
+				system_instruction=system_prompt,
+				thinking_config=types.ThinkingConfig(thinking_budget=0),
+			),
 		)
 
 		return response.text

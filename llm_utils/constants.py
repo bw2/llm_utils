@@ -5,6 +5,7 @@ ANTHROPIC_MODELS = {
 }
 
 GEMINI_MODELS = {
+	"2.5-flash": "gemini-2.5-flash-preview-05-20",
 	"1.5-pro": "gemini-1.5-pro",
 	"1.5-flash": "gemini-1.5-flash",
 }
