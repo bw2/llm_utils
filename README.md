@@ -80,9 +80,3 @@ for model_name, ask_function, model_version in models_to_query:
     print(f"{model_name} {model_version}:\n", response_text)
 ```
 
-
-
-from llm_utils import 
-
-```
-
