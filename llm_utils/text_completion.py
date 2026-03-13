@@ -6,14 +6,12 @@ import anthropic
 import google.genai as genai
 from google.genai import types
 
-from mistralai.client import MistralClient
-from mistralai.models.chat_completion import ChatMessage
 import openai
 import os
 import sqlite3
 import time
 
-from llm_utils.constants import OPENAI_MODELS, ANTHROPIC_MODELS, GEMINI_MODELS, MISTRAL_MODELS
+from llm_utils.constants import OPENAI_MODELS, ANTHROPIC_MODELS, GEMINI_MODELS
 
 MAX_RETRIES = 5
 
@@ -22,7 +20,6 @@ RESPONSE_CACHE_DB = None
 
 ANTHROPIC_CLIENT = None
 OPENAI_CLIENT = None
-MISTRAL_CLIENT = None
 
 
 
@@ -255,36 +252,3 @@ def ask_gemini(question, model="2.5-flash", temperature=0, max_tokens=1000, syst
 		verbose=verbose)
 
 
-def ask_mistral(question, model="mistral-large-latest", temperature=0, max_tokens=1000, system_prompt="", check_cache=True, update_cache=True, verbose=False):
-	global MISTRAL_CLIENT
-
-	if model not in MISTRAL_MODELS:
-		raise ValueError(f"Invalid mistral model version: {model}. It must be one of {MISTRAL_MODELS.keys()}")
-
-	if MISTRAL_CLIENT is None:
-		MISTRAL_CLIENT = MistralClient()  # api_key=os.environ["MISTRAL_API_KEY"])
-
-	def run_query():
-		response = MISTRAL_CLIENT.chat(
-			model=MISTRAL_MODELS[model],
-			messages=[ChatMessage(role="system", content=system_prompt), ChatMessage(role="user", content=question)],
-			temperature=temperature,
-			max_tokens=max_tokens,
-		)
-		if len(response.choices) == 1:
-			response_text = response.choices[0].message.content
-		else:
-			print(f"WARNING: Expected 1 response from Mistral, but got {len(response.choices)}")
-			response_text = None
-		return response_text
-
-	return _ask_model_with_cache_and_retry(
-		run_query,
-		question,
-		f"mistral {model}",
-		temperature=temperature,
-		max_tokens=max_tokens,
-		system_prompt=system_prompt,
-		check_cache=check_cache,
-		update_cache=update_cache,
-		verbose=verbose)

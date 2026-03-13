@@ -24,7 +24,7 @@ class PublishCommand(build_py):
 setup(
     name='llm_utils',
     version="0.1",
-    description="Utilities for querying large language model (LLM) APIs include those from Anthropic, OpenAI, Mistral, and Gemini",
+    description="Utilities for querying large language model (LLM) APIs include those from Anthropic, OpenAI, and Gemini",
     install_requires=requirements,
     cmdclass={
         'publish': PublishCommand,
