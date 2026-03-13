@@ -7,11 +7,13 @@ import google.genai as genai
 from google.genai import types
 
 from mistralai.client import MistralClient
+from mistralai.models.chat_completion import ChatMessage
 import openai
 import os
 import sqlite3
+import time
 
-from llm_utils.constants import ANTHROPIC_MODELS, GEMINI_MODELS, MISTRAL_MODELS, OPENAI_MODELS
+from llm_utils.constants import OPENAI_MODELS, ANTHROPIC_MODELS, GEMINI_MODELS, MISTRAL_MODELS
 
 MAX_RETRIES = 5
 
@@ -27,7 +29,7 @@ MISTRAL_CLIENT = None
 def get_openai_models_list():
 	return [
 		(model.id, datetime.fromtimestamp(model.created).isoformat())
-		for model in sorted(openai_client.models.list(), key=lambda x: x.created)
+		for model in sorted(OPENAI_CLIENT.models.list(), key=lambda x: x.created)
 	]
 
 def _connect_to_response_cache():
@@ -84,6 +86,10 @@ def _update_response_cache(question, model, temperature, max_tokens, system_prom
 		print("CACHE ERROR:", e)
 
 
+ASK_MODEL_TOTAL_TIME = 0
+ASK_MODEL_COUNT = 0
+CACHE_HIT_COUNT = 0
+TOTAL_ASK_COUNT = 0
 def _ask_model_with_cache_and_retry(
 	run_query,
 	question,
@@ -95,16 +101,27 @@ def _ask_model_with_cache_and_retry(
 	update_cache=True,
 	verbose=False):
 
+	if temperature < 0 or temperature > 1:
+		raise ValueError(f"Temperature {temperature} not in [0, 1]")
+
+	global TOTAL_ASK_COUNT, CACHE_HIT_COUNT
+	TOTAL_ASK_COUNT += 1
 	if check_cache:
 		cached_response = _get_response_from_cache(question, model_label, temperature, max_tokens, system_prompt)
 		if cached_response is not None:
 			if verbose:
 				print(f"cache hit for q{len(question)}, {model_label}, temp={temperature}, tokens={max_tokens}, s{len(system_prompt)}")
+			CACHE_HIT_COUNT += 1
+
 			return cached_response
+
 	if verbose:
 		print(f"calling api for q{len(question)}, {model_label}, temp={temperature}, tokens={max_tokens}, s{len(system_prompt)}")
-	if temperature < 0 or temperature > 1:
-		raise ValueError(f"Temperature {temperature} not in [0, 1]")
+
+
+	global ASK_MODEL_TOTAL_TIME, ASK_MODEL_COUNT
+	if verbose:
+		start_time = time.time()
 
 	for retry_attempt in range(0, MAX_RETRIES):
 		try:
@@ -115,6 +132,13 @@ def _ask_model_with_cache_and_retry(
 	else:
 		print(f"ERROR: Failed after {MAX_RETRIES} attempts.")
 		return None
+
+
+	if verbose:
+		end_time = time.time()
+		ASK_MODEL_TOTAL_TIME += end_time - start_time
+		ASK_MODEL_COUNT += 1
+		print(f"{end_time - start_time:.2f}s, average: {ASK_MODEL_TOTAL_TIME / ASK_MODEL_COUNT:.2f}s/request: {response_text}, cache hit rate: {CACHE_HIT_COUNT} out of {TOTAL_ASK_COUNT} ({CACHE_HIT_COUNT / TOTAL_ASK_COUNT:.1%})")
 
 	if update_cache:
 		_update_response_cache(question, model_label, temperature, max_tokens, system_prompt, response_text)
@@ -175,6 +199,7 @@ def ask_openai(question, model="4o", temperature=0, max_tokens=1000, system_prom
 				{ "role": "user", "content": question },
 			],
 			temperature=temperature,
+			max_tokens=max_tokens,
 		)
 		if response.choices[0].finish_reason != "stop":
 				print(f"WARNING: OpenAI did not stop generating text. finish_reason was: '{response.choices[0].finish_reason}'")
@@ -192,13 +217,16 @@ def ask_openai(question, model="4o", temperature=0, max_tokens=1000, system_prom
 		question,
 		f"openai {model}",
 		temperature=temperature,
-		max_tokens=0,
+		max_tokens=max_tokens,
 		system_prompt=system_prompt,
 		check_cache=check_cache,
 		update_cache=update_cache,
 		verbose=verbose)
 
 def ask_gemini(question, model="2.5-flash", temperature=0, max_tokens=1000, system_prompt="", check_cache=True, update_cache=True, verbose=False):
+	if model not in GEMINI_MODELS:
+		raise ValueError(f"Invalid gemini model version: {model}. It must be one of {GEMINI_MODELS.keys()}")
+
 	def run_query():
 		gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
