@@ -1,4 +1,4 @@
 python-dotenv
 openai
 anthropic
-google-generativeai
+google-genai
