@@ -15,7 +15,7 @@ from llm_utils.constants import OPENAI_MODELS, ANTHROPIC_MODELS, GEMINI_MODELS
 
 MAX_RETRIES = 5
 
-RESPONSE_CACHE_DB_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), ".cache/llm_response_cache.db")
+RESPONSE_CACHE_DB_PATH = os.environ.get("LLM_RESPONSE_CACHE_DB_PATH", os.path.join(os.path.dirname(os.path.realpath(__file__)), ".cache/llm_response_cache.db"))
 RESPONSE_CACHE_DB = None
 
 ANTHROPIC_CLIENT = None
