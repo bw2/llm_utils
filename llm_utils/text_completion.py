@@ -225,7 +225,9 @@ def ask_gemini(question, model="2.5-flash", temperature=0, max_tokens=1000, syst
 		raise ValueError(f"Invalid gemini model version: {model}. It must be one of {GEMINI_MODELS.keys()}")
 
 	def run_query():
-		gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+		# google-genai 3.0 switched the default to the v1 API, which rejects the system instruction and thinking
+		# config sent below with 400 INVALID_ARGUMENT, so request v1beta explicitly.
+		gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"], http_options=types.HttpOptions(api_version="v1beta"))
 
 		response = gemini_client.models.generate_content(
 			model=GEMINI_MODELS[model],
