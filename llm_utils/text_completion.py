@@ -14,6 +14,9 @@ import time
 from llm_utils.constants import OPENAI_MODELS, ANTHROPIC_MODELS, GEMINI_MODELS
 
 MAX_RETRIES = 5
+# Wait this long after the first failed attempt, and double the wait after each later one (2, 4, 8, 16 seconds),
+# so that a brief outage or rate limit doesn't use up all the retries within a second.
+FIRST_RETRY_DELAY_SECONDS = 2
 
 RESPONSE_CACHE_DB_PATH = os.environ.get("LLM_RESPONSE_CACHE_DB_PATH", os.path.join(os.path.dirname(os.path.realpath(__file__)), ".cache/llm_response_cache.db"))
 RESPONSE_CACHE_DB = None
@@ -126,6 +129,8 @@ def _ask_model_with_cache_and_retry(
 			break
 		except Exception as e:
 			print(f"WARNING: {type(e).__name__}: {e}. Retry attempt #{retry_attempt + 1} failed.")
+			if retry_attempt < MAX_RETRIES - 1:
+				time.sleep(FIRST_RETRY_DELAY_SECONDS * 2 ** retry_attempt)
 	else:
 		print(f"ERROR: Failed after {MAX_RETRIES} attempts.")
 		return None
